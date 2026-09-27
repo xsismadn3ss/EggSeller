@@ -13,6 +13,12 @@ export async function POST(request: Request) {
   if (typeof body.message !== "string" || !body.message.trim()) {
     return Response.json({ error: "Falta 'message'" }, { status: 400 });
   }
+  if (body.message.length > 2000) {
+    return Response.json(
+      { error: "Mensaje supera 2000 caracteres" },
+      { status: 400 },
+    );
+  }
   if (
     body.sessionId !== undefined &&
     body.sessionId !== null &&
@@ -30,7 +36,9 @@ export async function POST(request: Request) {
     const message = e instanceof Error ? e.message : "Error interno";
     const status = message.includes("Falta variable de entorno")
       ? 503
-      : 502;
+      : message.includes("supera") || message.includes("Falta 'message'")
+        ? 400
+        : 502;
     return Response.json({ error: message }, { status });
   }
 }
