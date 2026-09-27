@@ -89,7 +89,11 @@ export function CategoriaChart({ data }: { data: Grupo[] }) {
   return (
     <ChartContainer config={config} className="h-72 w-full">
       <PieChart>
-        <ChartTooltip content={<ChartTooltipContent formatter={(v) => fmtUSD(Number(v))} />} />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent nameKey="nombre" formatter={(v) => fmtUSD(Number(v))} />
+          }
+        />
         <Pie
           data={data}
           dataKey="monto"
