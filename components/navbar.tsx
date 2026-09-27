@@ -24,6 +24,7 @@ const LINKS = [
   { href: "/", label: "Inicio" },
   { href: "/upload", label: "Subir datos" },
   { href: "/chat", label: "Chat IA" },
+  { href: "/sugerencias", label: "Sugerencias" },
 ]
 
 export function Navbar() {
