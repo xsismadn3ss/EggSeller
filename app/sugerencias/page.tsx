@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 
 const PERIODOS = [
+  { label: "Últimos 30 días", desde: "2025-12-02", hasta: "2025-12-31" },
   { label: "Últimos 90 días", desde: "2025-10-03", hasta: "2025-12-31" },
   { label: "Q4 2025", desde: "2025-10-01", hasta: "2025-12-31" },
   { label: "Q3 2025", desde: "2025-07-01", hasta: "2025-09-30" },
@@ -31,17 +32,26 @@ const PERIODOS = [
 export default function SugerenciasPage() {
   const [periodo, setPeriodo] = useState(PERIODOS[0].label);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [duracion, setDuracion] = useState<number | null>(null);
   const [reporte, setReporte] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function generar() {
     const p = PERIODOS.find((x) => x.label === periodo) ?? {
-      desde: "2025-10-03",
+      desde: "2025-12-02",
       hasta: "2025-12-31",
     };
     setLoading(true);
     setError(null);
     setReporte(null);
+    setDuracion(null);
+    const t0 = Date.now();
+    setElapsed(0);
+    const timer = setInterval(
+      () => setElapsed(Math.round((Date.now() - t0) / 1000)),
+      500,
+    );
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -53,9 +63,11 @@ export default function SugerenciasPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Error al generar");
       setReporte(data.text);
+      setDuracion(Math.round((Date.now() - t0) / 1000));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      clearInterval(timer);
       setLoading(false);
     }
   }
@@ -95,7 +107,7 @@ export default function SugerenciasPage() {
             <Button onClick={generar} disabled={loading}>
               {loading ? (
                 <>
-                  <Spinner /> Generando…
+                  <Spinner /> Generando… ({elapsed}s)
                 </>
               ) : (
                 "Generar sugerencia"
@@ -129,7 +141,10 @@ export default function SugerenciasPage() {
         <Card>
           <CardHeader>
             <CardTitle>Reporte de pedido sugerido</CardTitle>
-            <CardDescription>{periodo}</CardDescription>
+            <CardDescription>
+              {periodo}
+              {duracion !== null && ` · generado en ${duracion}s`}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <ChatMarkdown text={reporte} />

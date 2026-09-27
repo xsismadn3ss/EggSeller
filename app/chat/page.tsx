@@ -67,18 +67,24 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatsRef = useRef<Conversation[]>([]);
+
+  // Persistencia explícita: el effect de escritura se eliminó porque
+  // en el remontaje (volver a /chat) pisaba el storage con [].
+  function persist(next: Conversation[]) {
+    chatsRef.current = next;
+    setChats(next);
+    try {
+      localStorage.setItem(LS_CHATS, JSON.stringify(next));
+    } catch {}
+  }
 
   useEffect(() => {
     const loaded = loadChats();
+    chatsRef.current = loaded;
     setChats(loaded);
     setActiveId(loaded[0]?.id ?? null);
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_CHATS, JSON.stringify(chats));
-    } catch {}
-  }, [chats]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -87,7 +93,7 @@ export default function ChatPage() {
   const active = chats.find((c) => c.id === activeId) ?? null;
 
   function patch(id: string, fn: (c: Conversation) => Conversation) {
-    setChats((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
+    persist(chatsRef.current.map((c) => (c.id === id ? fn(c) : c)));
   }
 
   function newChat() {
@@ -98,17 +104,15 @@ export default function ChatPage() {
       msgs: [],
       updatedAt: Date.now(),
     };
-    setChats((prev) => [c, ...prev]);
+    persist([c, ...chatsRef.current]);
     setActiveId(c.id);
     setInput("");
   }
 
   function removeChat(id: string) {
-    setChats((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      if (activeId === id) setActiveId(next[0]?.id ?? null);
-      return next;
-    });
+    const next = chatsRef.current.filter((c) => c.id !== id);
+    persist(next);
+    if (activeId === id) setActiveId(next[0]?.id ?? null);
   }
 
   async function send(e: React.FormEvent) {
@@ -124,7 +128,7 @@ export default function ChatPage() {
         msgs: [],
         updatedAt: Date.now(),
       };
-      setChats((prev) => [c, ...prev]);
+      persist([c, ...chatsRef.current]);
       setActiveId(c.id);
       id = c.id;
     }
@@ -138,7 +142,7 @@ export default function ChatPage() {
     }));
     setLoading(true);
     try {
-      const conv = chats.find((c) => c.id === target);
+      const conv = chatsRef.current.find((c) => c.id === target);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,7 +180,7 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6 lg:flex-row">
-      <Card className="lg:w-64 lg:shrink-0">
+      <Card className="max-h-72 overflow-y-auto lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100svh-6rem)] lg:w-64 lg:shrink-0 lg:self-start">
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Historial</CardTitle>
           <Button variant="outline" size="sm" onClick={newChat}>
