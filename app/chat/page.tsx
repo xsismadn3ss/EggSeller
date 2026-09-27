@@ -87,7 +87,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-2xl flex-col gap-4 p-6">
+    <div className="mx-auto flex min-h-[calc(100svh-3.5rem)] max-w-2xl flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
