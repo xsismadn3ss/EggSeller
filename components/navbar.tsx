@@ -1,18 +1,19 @@
-"use client";
+"use client"
 
-import Link from "next/link";
+import Link from "next/link"
 import {
   NavigationMenu,
   NavigationMenuItem,
   NavigationMenuLink,
   NavigationMenuList,
   navigationMenuTriggerStyle,
-} from "@/components/ui/navigation-menu";
+} from "@/components/ui/navigation-menu"
+import { ModeToggle } from "@/components/mode-toggle"
 
 const LINKS = [
   { href: "/", label: "Inicio" },
   { href: "/upload", label: "Subir datos" },
-];
+]
 
 export function Navbar() {
   return (
@@ -21,21 +22,24 @@ export function Navbar() {
         <Link href="/" className="font-semibold">
           EggSeller
         </Link>
-        <NavigationMenu>
-          <NavigationMenuList>
-            {LINKS.map((l) => (
-              <NavigationMenuItem key={l.href}>
-                <NavigationMenuLink
-                  render={<Link href={l.href} />}
-                  className={navigationMenuTriggerStyle()}
-                >
-                  {l.label}
-                </NavigationMenuLink>
-              </NavigationMenuItem>
-            ))}
-          </NavigationMenuList>
-        </NavigationMenu>
+        <div className="flex items-center gap-1">
+          <NavigationMenu>
+            <NavigationMenuList>
+              {LINKS.map((l) => (
+                <NavigationMenuItem key={l.href}>
+                  <NavigationMenuLink
+                    render={<Link href={l.href} />}
+                    className={navigationMenuTriggerStyle()}
+                  >
+                    {l.label}
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+              ))}
+            </NavigationMenuList>
+          </NavigationMenu>
+          <ModeToggle />
+        </div>
       </div>
     </header>
-  );
+  )
 }
