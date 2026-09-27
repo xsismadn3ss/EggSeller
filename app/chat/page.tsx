@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { cn } from "@/lib/utils";
 
 interface Msg {
@@ -55,7 +56,10 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, sessionId }),
+        body: JSON.stringify({
+          message: text,
+          ...(sessionId ? { sessionId } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Error del chat");
@@ -113,13 +117,17 @@ export default function ChatPage() {
               <div
                 key={i}
                 className={cn(
-                  "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                  "max-w-[85%] rounded-lg px-3 py-2",
                   m.role === "user"
-                    ? "self-end bg-primary text-primary-foreground"
+                    ? "self-end bg-primary text-sm text-primary-foreground"
                     : "self-start bg-muted",
                 )}
               >
-                {m.text}
+                {m.role === "user" ? (
+                  <span className="text-sm">{m.text}</span>
+                ) : (
+                  <ChatMarkdown text={m.text} />
+                )}
               </div>
             ))}
             {loading && (
