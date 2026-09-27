@@ -91,7 +91,11 @@ export function CategoriaChart({ data }: { data: Grupo[] }) {
       <PieChart>
         <ChartTooltip
           content={
-            <ChartTooltipContent nameKey="nombre" formatter={(v) => fmtUSD(Number(v))} />
+            <ChartTooltipContent
+              formatter={(value, name, item) =>
+                `${(item as { payload?: { nombre?: string } })?.payload?.nombre ?? name}: ${fmtUSD(Number(value))}`
+              }
+            />
           }
         />
         <Pie
