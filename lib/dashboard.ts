@@ -111,7 +111,7 @@ const num = (v: unknown): number =>
     ? (v as { toNumber: () => number }).toNumber()
     : Number(v ?? 0);
 
-function prevRange(f: DashboardFilters): { desde: string; hasta: string } {
+export function prevRange(f: DashboardFilters): { desde: string; hasta: string } {
   const d = new Date(`${f.desde}T00:00:00`);
   const h = new Date(`${f.hasta}T00:00:00`);
   const len = Math.max(0, Math.round((h.getTime() - d.getTime()) / 86400000));
@@ -121,7 +121,95 @@ function prevRange(f: DashboardFilters): { desde: string; hasta: string } {
   return { desde: iso(desdePrev), hasta: iso(hastaPrev) };
 }
 
-export async function getDashboardData(f: DashboardFilters): Promise<DashboardData> {
+export interface TrendProducto {
+  producto: string;
+  kg: number;
+  monto: number;
+  tickets: number;
+  kgPrev: number;
+  tendenciaPct: number | null;
+}
+
+export interface ResumenCargamento {
+  desde: string;
+  hasta: string;
+  tickets: number;
+  monto: number;
+  kg: number;
+  clientes: number;
+  productos: TrendProducto[];
+}
+
+/**
+ * Agregado compacto en UN solo query para sugerencias de cargamento:
+ * evita que el LLM haga 3-4 rondas de tools (eso es lo que tardaba minutos).
+ */
+export async function getResumenCargamento(
+  f: DashboardFilters,
+): Promise<ResumenCargamento> {
+  const prev = prevRange(f);
+  const session = getSession();
+  try {
+    const r = await session.run(
+      `MATCH (cli:Cliente)-[:REALIZO]->(v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)
+       WHERE v.fecha >= date($desde) AND v.fecha <= date($hasta)
+       WITH count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT cli) AS clientes
+       RETURN tickets, monto, kg, clientes`,
+      { desde: f.desde, hasta: f.hasta },
+    );
+    const k = r.records[0];
+    const r2 = await session.run(
+      `MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)
+       WHERE v.fecha >= date($desde) AND v.fecha <= date($hasta)
+       WITH p.nombre AS prod, sum(v.cantidad) AS kg, sum(v.monto) AS monto, count(*) AS t
+       OPTIONAL MATCH (v2:Venta)-[:INCLUYE_PRODUCTO]->(p2:Producto)
+       WHERE p2.nombre = prod AND v2.fecha >= date($pDesde) AND v2.fecha <= date($pHasta)
+       WITH prod, kg, monto, t, sum(v2.cantidad) AS kgPrev
+       RETURN prod, kg, monto, t, kgPrev,
+         CASE WHEN kgPrev > 0 THEN round((kg - kgPrev) * 100.0 / kgPrev) ELSE null END AS trend
+       ORDER BY kg DESC`,
+      { desde: f.desde, hasta: f.hasta, pDesde: prev.desde, pHasta: prev.hasta },
+    );
+    return {
+      desde: f.desde,
+      hasta: f.hasta,
+      tickets: num(k.get("tickets")),
+      monto: Math.round(num(k.get("monto")) * 100) / 100,
+      kg: num(k.get("kg")),
+      clientes: num(k.get("clientes")),
+      productos: r2.records.map((x) => ({
+        producto: String(x.get("prod")),
+        kg: num(x.get("kg")),
+        monto: Math.round(num(x.get("monto")) * 100) / 100,
+        tickets: num(x.get("t")),
+        kgPrev: num(x.get("kgPrev")),
+        tendenciaPct:
+          x.get("trend") === null ? null : num(x.get("trend")),
+      })),
+    };
+  } finally {
+    await session.close();
+  }
+}
+
+// Caché en memoria (los datos solo cambian al subir ventas)
+const dashCache = new Map<string, { exp: number; data: DashboardData }>();
+const DASH_TTL_MS = 120_000;
+
+export async function getDashboardDataCached(
+  f: DashboardFilters,
+): Promise<DashboardData> {
+  const key = JSON.stringify(f);
+  const hit = dashCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.data;
+  const data = await getDashboardData(f);
+  dashCache.set(key, { exp: Date.now() + DASH_TTL_MS, data });
+  return data;
+}
+
+export async function getDashboardData(
+  f: DashboardFilters,
+): Promise<DashboardData> {
   const session = getSession();
   try {
     const { where, params } = buildWhere(f);

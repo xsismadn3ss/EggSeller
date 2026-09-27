@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -46,7 +47,7 @@ export default function SugerenciasPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `Analiza las ventas del ${p.desde} al ${p.hasta} usando tus herramientas (resumen, top productos, preferencias por cliente y ventas por categoría). Con esos hábitos sugiere el próximo cargamento: por producto indica cantidad aproximada en kg y una justificación breve. Responde en español, primero una tabla "Producto | Cantidad sugerida (kg) | Por qué" y luego 3 recomendaciones generales.`,
+          message: `Llama primero a resumen_cargamento para el periodo del ${p.desde} al ${p.hasta} y con esos datos sugiere el próximo cargamento: por producto indica cantidad aproximada en kg y justificación breve usando la tendencia. Responde en español, máximo 400 palabras: primero una tabla "Producto | Cantidad sugerida (kg) | Por qué" y luego 3 recomendaciones generales.`,
         }),
       });
       const data = await res.json();
@@ -131,7 +132,7 @@ export default function SugerenciasPage() {
             <CardDescription>{periodo}</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{reporte}</p>
+            <ChatMarkdown text={reporte} />
           </CardContent>
         </Card>
       )}

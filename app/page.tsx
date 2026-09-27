@@ -23,7 +23,7 @@ import {
   TopProductosChart,
 } from "@/components/dashboard-charts";
 import { fmtInt, fmtUSD } from "@/lib/format";
-import { getDashboardData, parseFilters } from "@/lib/dashboard";
+import { getDashboardDataCached, parseFilters } from "@/lib/dashboard";
 
 function delta(cur: number, prev: number): string {
   if (prev === 0) return "—";
@@ -66,7 +66,7 @@ export default async function Page({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const f = parseFilters(await searchParams);
-  const data = await getDashboardData(f);
+  const data = await getDashboardDataCached(f);
   const { kpis: k, prev: p } = data;
 
   return (

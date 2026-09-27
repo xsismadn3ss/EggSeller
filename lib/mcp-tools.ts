@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getDashboardData, parseFilters } from "./dashboard";
+import { getDashboardData, getResumenCargamento, parseFilters } from "./dashboard";
 
 const filtrosSchema = {
   desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha inicio YYYY-MM-DD"),
@@ -70,6 +70,19 @@ export function createMcpServer(): McpServer {
         porCategoria: data.porCategoria,
         topProductos: data.topProductos,
       });
+    },
+  );
+
+  server.registerTool(
+    "resumen_cargamento",
+    {
+      description:
+        "Todo lo necesario para sugerir un cargamento en UNA sola llamada: totales del periodo y por producto con kg, monto y tendencia % vs periodo anterior equivalente",
+      inputSchema: { desde: filtrosSchema.desde, hasta: filtrosSchema.hasta },
+    },
+    async (args) => {
+      const data = await getResumenCargamento(parseFilters(args));
+      return text(data);
     },
   );
 

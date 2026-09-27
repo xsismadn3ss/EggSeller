@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { getDashboardData, parseFilters } from "@/lib/dashboard";
+import { getDashboardDataCached, parseFilters } from "@/lib/dashboard";
 
 export async function GET(request: Request) {
   try {
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     url.searchParams.forEach((v, k) => {
       sp[k] = v;
     });
-    const data = await getDashboardData(parseFilters(sp));
+    const data = await getDashboardDataCached(parseFilters(sp));
     return Response.json(data);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error interno";
