@@ -18,7 +18,7 @@ npm run dev            # app en http://localhost:3000
 - `POST /api/upload-excel` — multipart `file` .xls/.xlsx.
 - `GET /api/health` — ping a Neo4j.
 
-Página: `/subir` (formulario CSV/Excel con shadcn/ui).
+Página: `/upload` (formulario CSV/Excel con shadcn/ui).
 
 ## Componentes UI
 
