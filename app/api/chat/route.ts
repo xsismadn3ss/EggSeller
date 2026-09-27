@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   }
   if (
     body.sessionId !== undefined &&
+    body.sessionId !== null &&
     typeof body.sessionId !== "string"
   ) {
     return Response.json({ error: "'sessionId' inválido" }, { status: 400 });
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   try {
     const reply = await chat(
       body.message.trim(),
-      body.sessionId || undefined,
+      typeof body.sessionId === "string" ? body.sessionId : undefined,
     );
     return Response.json(reply);
   } catch (e) {
