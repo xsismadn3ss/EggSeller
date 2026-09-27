@@ -13,6 +13,7 @@ import { ModeToggle } from "@/components/mode-toggle"
 const LINKS = [
   { href: "/", label: "Inicio" },
   { href: "/upload", label: "Subir datos" },
+  { href: "/chat", label: "Chat IA" },
 ]
 
 export function Navbar() {
