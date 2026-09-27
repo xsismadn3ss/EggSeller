@@ -12,7 +12,7 @@ El proyecto tendrá lo siguiente
 Tecnologías a utilizar:
 
 - Next.js: framework fullstack para desarrollar frontend y backend
-
+- OpenCode: cliente LLM con modelos gratuitos
 ## Diagrama Mermaid:
 
 ```mermaid
