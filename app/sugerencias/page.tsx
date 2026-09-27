@@ -9,6 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -90,12 +92,37 @@ export default function SugerenciasPage() {
               </Select>
             </div>
             <Button onClick={generar} disabled={loading}>
-              {loading ? "Generando…" : "Generar sugerencia"}
+              {loading ? (
+                <>
+                  <Spinner /> Generando…
+                </>
+              ) : (
+                "Generar sugerencia"
+              )}
             </Button>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>
+
+      {loading && (
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-56" />
+            <Skeleton className="h-4 w-32" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner /> Analizando hábitos de compra en Neo4j…
+            </div>
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+          </CardContent>
+        </Card>
+      )}
 
       {reporte && (
         <Card>
