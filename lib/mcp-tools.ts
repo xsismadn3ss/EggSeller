@@ -50,11 +50,29 @@ export function createMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "top_clientes",
+    {
+      description:
+        "Quiénes son los clientes y cuáles compran más: ranking por monto con ventas, última compra y producto favorito. Úsala también para obtener el nombre exacto antes de llamar a preferencias_cliente",
+      inputSchema: {
+        desde: filtrosSchema.desde,
+        hasta: filtrosSchema.hasta,
+        limite: z.number().int().min(1).max(20).optional().describe("Cuántos clientes devolver (default 10)"),
+      },
+    },
+    async (args) => {
+      const { limite, ...rest } = args;
+      const data = await getDashboardData(parseFilters(rest));
+      return text(data.topClientes.slice(0, limite ?? 10));
+    },
+  );
+
+  server.registerTool(
     "preferencias_cliente",
     {
-      description: "Hábitos de compra de un cliente: monto, categorías y productos favoritos",
+      description: "Hábitos de compra de UN cliente: monto, categorías y productos favoritos. El nombre exacto se obtiene primero con top_clientes",
       inputSchema: {
-        cliente: z.string().describe("Nombre exacto del cliente"),
+        cliente: z.string().describe("Nombre exacto del cliente (ver top_clientes)"),
         desde: filtrosSchema.desde,
         hasta: filtrosSchema.hasta,
       },
