@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getSession } from "./neo4j";
 import { getDashboardData, getResumenCargamento, parseFilters } from "./dashboard";
 
 const filtrosSchema = {
@@ -17,8 +18,96 @@ const text = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data) }],
 });
 
+const MAX_ROWS = 50;
+
+// Solo lectura: debe empezar con cláusula de lectura y no puede contener
+// escrituras, APOC/GDS ni múltiples sentencias.
+const WRITE_RE =
+  /\b(create|merge|delete|detach|set|remove|drop|load\s+csv|foreach|call\s+(?!db\.)|apoc\.|gds\.)/i;
+
+export async function runReadOnlyCypher(query: string): Promise<{
+  columns: string[];
+  rows: Record<string, unknown>[];
+  truncated: boolean;
+}> {
+  const clean = query
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+  if (!clean) throw new Error("Consulta vacía");
+  if (clean.includes(";")) throw new Error("Una sola sentencia por llamada");
+  if (!/^(match|optional\s+match|with|unwind|call)\b/i.test(clean)) {
+    throw new Error("Solo se permiten consultas de lectura (MATCH/WITH/UNWIND/CALL db.*)");
+  }
+  if (WRITE_RE.test(clean)) {
+    throw new Error("Escritura no permitida: solo lectura");
+  }
+  const session = getSession();
+  try {
+    const res = await session.run(clean, {}, { timeout: 15000 });
+    const columns = (res.records[0]?.keys ?? []).map(String);
+    const rows = res.records.slice(0, MAX_ROWS).map((r) => {
+      const o: Record<string, unknown> = {};
+      for (const k of columns) o[k] = toJson(r.get(k));
+      return o;
+    });
+    return { columns, rows, truncated: res.records.length > MAX_ROWS };
+  } finally {
+    await session.close();
+  }
+}
+
+function toJson(v: unknown): unknown {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "object" && v !== null && "toNumber" in (v as object)) {
+    return (v as { toNumber: () => number }).toNumber();
+  }
+  if (typeof v === "object" && v !== null && "toString" in v) {
+    const s = (v as { toString: () => string }).toString();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+  }
+  if (Array.isArray(v)) return v.map(toJson);
+  if (typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v)) o[k] = toJson(val);
+    return o;
+  }
+  return v;
+}
+
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: "eggseller", version: "1.0.0" });
+
+  server.registerTool(
+    "ejecutar_cypher",
+    {
+      description:
+        "Ejecuta CUALQUIER consulta Cypher de SOLO LECTURA en Neo4j y devuelve filas JSON. Úsala para preguntas abiertas o cuando no sepas los valores exactos: primero explora (ej. MATCH (z:ZonaGeografica) RETURN DISTINCT z.nombre) y luego agrega. Esquema: nodos Cliente, Venta, Producto, Categoria, ZonaGeografica, CanalDistribucion, CanalVenta; relaciones REALIZO, INCLUYE_PRODUCTO, PERTENECE_A, POR_CANAL_DIST, POR_CANAL_VENTA, UBICADO_EN. Venta{ventaId, fecha(date), cantidad, precioUnitario, monto, fuente}. Máximo 50 filas.",
+      inputSchema: {
+        query: z
+          .string()
+          .min(1)
+          .max(2000)
+          .describe("Consulta Cypher de solo lectura (sin punto y coma)"),
+      },
+    },
+    async (args) => {
+      try {
+        return text(await runReadOnlyCypher(args.query));
+      } catch (e) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
 
   server.registerTool(
     "ventas_resumen",
