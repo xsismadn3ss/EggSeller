@@ -81,14 +81,16 @@ export default async function Page({
         </p>
       </div>
 
+      <DashboardFilters />
+
       {sinDatos ? (
         <Card>
           <CardHeader>
             <CardTitle>Sin datos para mostrar</CardTitle>
             <CardDescription>
-              La base de datos está vacía. Carga un archivo CSV o Excel para
-              ver el dashboard, o usa el wizard con IA si tu archivo tiene
-              otra estructura.
+              No hay ventas para estos filtros. Ajusta la búsqueda o carga un
+              archivo CSV o Excel (usa el wizard con IA si tu archivo tiene
+              otra estructura).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -99,8 +101,6 @@ export default async function Page({
         </Card>
       ) : (
         <>
-          <DashboardFilters />
-
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi title="Ventas USD" value={fmtUSD(k.monto)} sub="vs anterior" cur={k.monto} prev={p.monto} />
         <Kpi title="Kg / unid" value={fmtInt(k.kg)} sub="vs anterior" cur={k.kg} prev={p.kg} />

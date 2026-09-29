@@ -14,15 +14,16 @@ import {
 } from "@/components/ui/select";
 import type { FiltrosData } from "@/lib/dashboard";
 
-const PRESETS: { label: string; desde: string; hasta: string }[] = [
-  { label: "Todo 2025", desde: "2025-01-01", hasta: "2025-12-31" },
-  { label: "Q1", desde: "2025-01-01", hasta: "2025-03-31" },
-  { label: "Q2", desde: "2025-04-01", hasta: "2025-06-30" },
-  { label: "Q3", desde: "2025-07-01", hasta: "2025-09-30" },
-  { label: "Q4", desde: "2025-10-01", hasta: "2025-12-31" },
-  { label: "Últimos 30 días", desde: "2025-12-02", hasta: "2025-12-31" },
-  { label: "Últimos 90 días", desde: "2025-10-03", hasta: "2025-12-31" },
-];
+const fmtLocal = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Mismo cálculo que el servidor: hasta = hoy, desde = hoy menos un año. */
+function defaultRange(): { desde: string; hasta: string } {
+  const hasta = new Date();
+  const desde = new Date(hasta);
+  desde.setFullYear(desde.getFullYear() - 1);
+  return { desde: fmtLocal(desde), hasta: fmtLocal(hasta) };
+}
 
 function FilterSelect({
   label,
@@ -80,46 +81,19 @@ export function DashboardFilters() {
     router.replace(`${pathname}?${qs.toString()}`);
   };
 
-  const setRange = (desde: string, hasta: string) => {
-    const qs = new URLSearchParams(searchParams.toString());
-    qs.set("desde", desde);
-    qs.set("hasta", hasta);
-    router.replace(`${pathname}?${qs.toString()}`);
-  };
-
   const clear = () => router.replace(pathname);
   const get = (k: string) => searchParams.get(k);
   const hasFilters = searchParams.toString().length > 0;
+  const def = defaultRange();
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
-        {PRESETS.map((p) => {
-          const active =
-            get("desde") === p.desde && get("hasta") === p.hasta;
-          return (
-            <Button
-              key={p.label}
-              size="sm"
-              variant={active ? "default" : "outline"}
-              onClick={() => setRange(p.desde, p.hasta)}
-            >
-              {p.label}
-            </Button>
-          );
-        })}
-        {hasFilters && (
-          <Button size="sm" variant="ghost" onClick={clear}>
-            Limpiar
-          </Button>
-        )}
-      </div>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <Label>Desde</Label>
           <Input
             type="date"
-            value={get("desde") ?? "2025-01-01"}
+            value={get("desde") ?? def.desde}
             onChange={(e) => setParam("desde", e.target.value || null)}
           />
         </div>
@@ -127,7 +101,7 @@ export function DashboardFilters() {
           <Label>Hasta</Label>
           <Input
             type="date"
-            value={get("hasta") ?? "2025-12-31"}
+            value={get("hasta") ?? def.hasta}
             onChange={(e) => setParam("hasta", e.target.value || null)}
           />
         </div>
@@ -143,6 +117,11 @@ export function DashboardFilters() {
               <FilterSelect label="Punto" param="punto" options={opts.puntos} current={get("punto")} onChange={setParam} />
             )}
           </>
+        )}
+        {hasFilters && (
+          <Button size="sm" variant="ghost" onClick={clear}>
+            Limpiar
+          </Button>
         )}
       </div>
     </div>
