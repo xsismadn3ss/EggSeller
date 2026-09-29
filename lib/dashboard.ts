@@ -12,6 +12,17 @@ export interface DashboardFilters {
   punto?: string;
 }
 
+const fmtLocal = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Rango por defecto: hasta = hoy, desde = hoy menos un año. */
+export function defaultRange(): { desde: string; hasta: string } {
+  const hasta = new Date();
+  const desde = new Date(hasta);
+  desde.setFullYear(desde.getFullYear() - 1);
+  return { desde: fmtLocal(desde), hasta: fmtLocal(hasta) };
+}
+
 export function parseFilters(
   sp: Record<string, string | string[] | undefined>,
 ): DashboardFilters {
@@ -21,9 +32,12 @@ export function parseFilters(
     const o = one(v)?.trim();
     return o ? o : undefined;
   };
+  const def = defaultRange();
+  // Hasta nunca supera hoy (límite superior = fecha actual)
+  const hasta = one(sp.hasta) ?? def.hasta;
   return {
-    desde: one(sp.desde) ?? "2025-01-01",
-    hasta: one(sp.hasta) ?? "2025-12-31",
+    desde: one(sp.desde) ?? def.desde,
+    hasta: hasta > def.hasta ? def.hasta : hasta,
     cliente: s(sp.cliente),
     categoria: s(sp.categoria),
     producto: s(sp.producto),
@@ -34,34 +48,55 @@ export function parseFilters(
   };
 }
 
-const MATCH_BASE = `
-MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)-[:PERTENECE_A]->(cat:Categoria)
+const MATCH_CORE = `
+MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)-[:PERTENECE_A]->(cat:Categoria)`;
+
+// OJO: el WHERE debe ir entre MATCH_CORE y OPT. Un WHERE después de un
+// OPTIONAL MATCH pasa a ser condición de ese OPTIONAL y deja de filtrar.
+const OPT = `
 OPTIONAL MATCH (cli:Cliente)-[:REALIZO]->(v)
 OPTIONAL MATCH (pt:PuntoExpress)-[:REGISTRO]->(v)
 OPTIONAL MATCH (v)-[:POR_CANAL_DIST]->(cd)
 OPTIONAL MATCH (v)-[:POR_CANAL_VENTA]->(cv)
 OPTIONAL MATCH (cli)-[:UBICADO_EN]->(z)`;
 
+const MATCH_BASE = `${MATCH_CORE}${OPT}`;
+
 function buildWhere(f: DashboardFilters, desde = "desde", hasta = "hasta") {
   const conds = [`v.fecha >= date($${desde})`, `v.fecha <= date($${hasta})`];
   const params: Record<string, unknown> = { [desde]: f.desde, [hasta]: f.hasta };
-  const eq: [string, string | undefined][] = [
-    ["cli.nombre", f.cliente],
+  // Núcleo (nodos del MATCH_CORE): van en el WHERE previo al OPTIONAL.
+  // Entidades (nodos del OPTIONAL): van en un WHERE posterior; si van antes,
+  // Neo4j falla con "Variable not defined", y si van después del OPTIONAL
+  // como filtro general, dejan de filtrar.
+  const coreEq: [string, string | undefined][] = [
     ["cat.nombre", f.categoria],
     ["p.nombre", f.producto],
+  ];
+  const optEq: [string, string | undefined][] = [
+    ["cli.nombre", f.cliente],
     ["z.nombre", f.zona],
     ["cv.nombre", f.canalVenta],
     ["cd.nombre", f.canalDist],
     ["pt.codigo", f.punto],
   ];
-  eq.forEach(([field, value], i) => {
-    if (value) {
-      const key = `f${i}`;
-      conds.push(`${field} = $${key}`);
+  let i = 0;
+  const optConds: string[] = [];
+  const push = (list: [string, string | undefined][], target: string[]) => {
+    for (const [field, value] of list) {
+      if (!value) continue;
+      const key = `f${i++}`;
       params[key] = value;
+      target.push(`${field} = $${key}`);
     }
-  });
-  return { where: `WHERE ${conds.join(" AND ")}`, params };
+  };
+  push(coreEq, conds);
+  push(optEq, optConds);
+  return {
+    where: `WHERE ${conds.join(" AND ")}`,
+    whereOpt: optConds.length > 0 ? ` WHERE ${optConds.join(" AND ")}` : "",
+    params,
+  };
 }
 
 export interface Kpis {
@@ -243,15 +278,15 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const session = getSession();
   try {
-    const { where, params } = buildWhere(f);
+    const { where, whereOpt, params } = buildWhere(f);
     const prev = prevRange(f);
     const prevBuilt = buildWhere({ ...f, ...prev }, "pDesde", "pHasta");
 
-    const kpisQ = `${MATCH_BASE} ${where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`;
+    const kpisQ = `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`;
     // Secuencial: una sesión Neo4j no acepta queries concurrentes
     const cur = await session.run(kpisQ, params);
     const prv = await session.run(
-      `${MATCH_BASE} ${prevBuilt.where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`,
+      `${MATCH_CORE} ${prevBuilt.where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${prevBuilt.whereOpt} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`,
       { ...params, ...prevBuilt.params },
     );
     const toKpis = (r: { get: (k: string) => unknown }): Kpis => {
@@ -269,7 +304,7 @@ export async function getDashboardData(
     const prevKpis = toKpis(prv.records[0]);
 
     const serieR = await session.run(
-      `${MATCH_BASE} ${where} WITH v.fecha.year AS y, v.fecha.month AS m, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN y, m, monto, kg, tickets ORDER BY y, m`,
+      `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} WITH v.fecha.year AS y, v.fecha.month AS m, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN y, m, monto, kg, tickets ORDER BY y, m`,
       params,
     );
     const serie: SeriePunto[] = serieR.records.map((r) => ({
@@ -280,7 +315,7 @@ export async function getDashboardData(
     }));
 
     const topProdR = await session.run(
-      `${MATCH_BASE} ${where} WITH p.nombre AS producto, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN producto, monto, kg, tickets ORDER BY monto DESC LIMIT 8`,
+      `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} WITH p.nombre AS producto, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN producto, monto, kg, tickets ORDER BY monto DESC LIMIT 8`,
       params,
     );
     const topProductos: TopProducto[] = topProdR.records.map((r) => ({
@@ -292,7 +327,7 @@ export async function getDashboardData(
 
     const group = async (field: string): Promise<Grupo[]> => {
       const r = await session.run(
-        `${MATCH_BASE} ${where} WITH ${field} AS nombre, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets WHERE nombre IS NOT NULL RETURN nombre, monto, kg, tickets ORDER BY monto DESC`,
+        `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} WITH ${field} AS nombre, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets WHERE nombre IS NOT NULL RETURN nombre, monto, kg, tickets ORDER BY monto DESC`,
         params,
       );
       return r.records.map((x) => ({
@@ -311,7 +346,7 @@ export async function getDashboardData(
     const porZona = await group("z.nombre");
 
     const topCliR = await session.run(
-      `${MATCH_BASE} ${where} WITH cli, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE cli IS NOT NULL ORDER BY m DESC
+      `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} WITH cli, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE cli IS NOT NULL ORDER BY m DESC
        WITH cli, collect({nombre: p.nombre, m: m})[0] AS fav, sum(m) AS total, sum(n) AS ventas, max(u) AS ultima
        RETURN cli.nombre AS cliente, total, ventas, ultima, fav.nombre AS favorito ORDER BY total DESC LIMIT 10`,
       params,
@@ -325,7 +360,7 @@ export async function getDashboardData(
     }));
 
     const topPuntosR = await session.run(
-      `${MATCH_BASE} ${where} WITH pt, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE pt IS NOT NULL ORDER BY m DESC
+      `${MATCH_CORE} ${where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${whereOpt} WITH pt, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE pt IS NOT NULL ORDER BY m DESC
        WITH pt, collect({nombre: p.nombre, m: m})[0] AS fav, sum(m) AS total, sum(n) AS ventas, max(u) AS ultima
        RETURN pt.codigo AS codigo, pt.nombre AS nombre, total, ventas, ultima, fav.nombre AS favorito ORDER BY total DESC LIMIT 10`,
       params,
@@ -341,7 +376,7 @@ export async function getDashboardData(
 
     // Tendencia por producto vs periodo anterior equivalente (mismos filtros)
     const trendPrevR = await session.run(
-      `${MATCH_BASE} ${prevBuilt.where} WITH p.nombre AS prod, sum(v.cantidad) AS kgPrev RETURN prod, kgPrev`,
+      `${MATCH_CORE} ${prevBuilt.where}${OPT} WITH v, p, cat, cli, pt, cd, cv, z${prevBuilt.whereOpt} WITH p.nombre AS prod, sum(v.cantidad) AS kgPrev RETURN prod, kgPrev`,
       { ...params, ...prevBuilt.params },
     );
     const prevMap = new Map(
