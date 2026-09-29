@@ -114,10 +114,12 @@ const READONLY_TOOLS: Record<string, boolean> | undefined = undefined;
 export async function chat(
   message: string,
   sessionId?: string,
+  opts?: { maxLength?: number },
 ): Promise<ChatReply> {
+  const max = opts?.maxLength ?? MAX_MESSAGE;
   const clean = message.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim();
-  if (clean.length > MAX_MESSAGE) {
-    throw new Error(`Mensaje supera ${MAX_MESSAGE} caracteres`);
+  if (clean.length > max) {
+    throw new Error(`Mensaje supera ${max} caracteres`);
   }
   const { client } = await getOpencode();
   const id = sessionId;

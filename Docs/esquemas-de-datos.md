@@ -2,7 +2,7 @@
 
 Motor: Neo4j (grafo de propiedades, lenguaje Cypher, driver oficial `neo4j-driver` para TypeScript/Next.js).
 
-Fuente de análisis: `Data/Demo_Ventas.xlsx`, hoja `Ventas2025` (1294 filas, 0 nulos, 10 columnas).
+Fuente de análisis: `Data/Demo_Ventas.xlsx`, hoja `Ventas2025` (1294 filas, 0 nulos, 10 columnas) y `Data/Demo_Ventas_2024_2025.xlsx` (hoja `Ventas_2024_2025`: 2304 filas, 0 nulos, 22 columnas, Brasil 2024-2025; hojas `Catalogo_Productos`, `Puntos_Express`, `Guia_Ejercicio`).
 
 Columnas origen: `Fecha, Cliente, Zona_Geografica, Canal_Distribucion, Canal_Venta, Producto, Categoria, Cantidad_kg_unid, Precio_Unitario_USD, Monto_Venta_USD`.
 
@@ -78,11 +78,37 @@ CREATE CONSTRAINT canal_venta_unique IF NOT EXISTS FOR (cv:CanalVenta) REQUIRE c
 |---|---|---|---|
 | `ventaId` | string (uuid) | sí, PK | generado en API. En carga masiva: `rowId` o uuid. |
 | `fecha` | date | sí | ISO 8601 `YYYY-MM-DD`. Rango sample 2025-01-01 a 2025-12-31. |
-| `cantidad` | number (>0) | sí | origen `Cantidad_kg_unid`. Sample 20–800. |
-| `precioUnitario` | number (>0) | sí, USD | origen `Precio_Unitario_USD`. Sample 1.80–17.99. |
-| `monto` | number (>0) | sí, USD | `cantidad * precioUnitario`, redondeo 2 decimales. No se acepta si difiere. |
+| `anio` | number | no | origen `Año` (dataset 2024-2025). |
+| `mes` | number 1-12 | no | origen `Mes`. |
+| `cantidad` | number (>0) | sí | origen `Cantidad_kg_unid` o `Unidades`. |
+| `precioUnitario` | number (>0) | sí | USD o R$ según `moneda`. |
+| `moneda` | enum | no | `USD | BRL`, default `USD`. |
+| `monto` | number (>0) | sí | `cantidad * precioUnitario`, redondeo 2 decimales. No se acepta si difiere. |
+| `stockDisponible` | number (≥0) | no | origen `Stock_Disponible_Unidades`. Sin esto el pedido sugerido es cota máxima. |
+| `leadTimeDias` | number (≥0) | no | origen `Lead_Time_Días`. |
+| `promocion` | boolean | no | origen `Promoción` (`Sí/No`). |
+| `devoluciones` | number (≥0) | no | origen `Devoluciones_Unidades`. |
+| `pedidoSugerido` | number (≥0) | no | origen `Pedido_Sugerido_Base` o calculado con la regla. |
+| `montoNeto` | number (≥0) | no | origen `Ventas_Netas_R$` (= monto − devoluciones valoradas). |
+| `demanda30d` | number (≥0) | no | origen `Demanda_30d_Estimada`. Input de la regla de pedido. |
+| `stockSeguridad` | number (≥0) | no | origen `Stock_Seguridad_20pct`. 20% de la demanda; se guarda para auditar la regla por fila. |
 | `fuente` | enum | sí | `excel | csv | api`. |
 | `createdAt` | datetime | sí | |
+
+### PuntoExpress (`:PuntoExpress`)
+Punto de venta del dataset 2024-2025 (8 puntos, São Paulo). Equivalente operativo a `Cliente` para ese dataset.
+
+| Propiedad | Tipo | Requerido | Notas |
+|---|---|---|---|
+| `codigo` | string | sí, PK/UNIQUE | ej. `SP-EXP-01`. Origen `Punto`. |
+| `nombre` | string | sí | origen `Nombre_Punto`. |
+| `canal` | string | sí | `Supermercado | Mayorista`. |
+| `region` | string | sí | origen `Región`. |
+
+Constraint sugerido:
+```cypher
+CREATE CONSTRAINT punto_codigo_unique IF NOT EXISTS FOR (pt:PuntoExpress) REQUIRE pt.codigo IS UNIQUE;
+```
 
 ## 3. Relaciones (tipos Neo4j)
 
@@ -94,6 +120,7 @@ CREATE CONSTRAINT canal_venta_unique IF NOT EXISTS FOR (cv:CanalVenta) REQUIRE c
 | `Venta → CanalDistribucion` | `POR_CANAL_DIST` | N:1 | dimensión dashboard. |
 | `Venta → CanalVenta` | `POR_CANAL_VENTA` | N:1 | dimensión dashboard. |
 | `Producto → Categoria` | `PERTENECE_A` | N:1 | ej. `Pollo Entero Fresco → Pollo`. |
+| `PuntoExpress → Venta` | `REGISTRO` | 1:N | ventas del dataset 2024-2025 por punto. |
 
 No se guarda `Zona` ni `Categoria` duplicados en `Venta`; se resuelven por grafo.
 
@@ -176,7 +203,11 @@ CREATE (v)-[:POR_CANAL_DIST]->(cd)
 CREATE (v)-[:POR_CANAL_VENTA]->(cv);
 ```
 
-## 6. Consultas que habilita (Neo4j / MCP / Dashboard / Chat IA)
+## 7. Wizard de mapeo con IA (archivos con otra estructura)
+
+`POST /api/mapear-columnas` recibe un Excel/CSV, muestra columnas + 3 muestras y pide a Big Pickle el mapeo `{columna_origen: campo_destino | null}` (`CAMPOS_DESTINO` en `lib/validations.ts`, incluye `anio, mes, stockDisponible, leadTimeDias, promocion, devoluciones, pedidoSugerido`). Si la IA falla, fallback local por alias. La UI (`/upload` → Wizard con IA) deja ajustar cada columna y `POST /api/upload-mapeado` carga con ese mapeo (detecta `BRL` por columnas originales).
+
+## 8. Consultas que habilita (Neo4j / MCP / Dashboard / Chat IA)
 
 - Top productos por cliente: `Cliente → Venta → Producto` sum `monto/cantidad`.
 - Preferencia por categoría/zona: agregación vía `PERTENECE_A` y `UBICADO_EN`.

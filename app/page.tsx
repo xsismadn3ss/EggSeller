@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -68,6 +70,7 @@ export default async function Page({
   const f = parseFilters(await searchParams);
   const data = await getDashboardDataCached(f);
   const { kpis: k, prev: p } = data;
+  const sinDatos = k.tickets === 0;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
@@ -78,9 +81,27 @@ export default async function Page({
         </p>
       </div>
 
-      <DashboardFilters />
+      {sinDatos ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sin datos para mostrar</CardTitle>
+            <CardDescription>
+              La base de datos está vacía. Carga un archivo CSV o Excel para
+              ver el dashboard, o usa el wizard con IA si tu archivo tiene
+              otra estructura.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/upload" className={buttonVariants()}>
+              Ir a subir datos
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <DashboardFilters />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi title="Ventas USD" value={fmtUSD(k.monto)} sub="vs anterior" cur={k.monto} prev={p.monto} />
         <Kpi title="Kg / unid" value={fmtInt(k.kg)} sub="vs anterior" cur={k.kg} prev={p.kg} />
         <Kpi title="Tickets" value={fmtInt(k.tickets)} sub="vs anterior" cur={k.tickets} prev={p.tickets} />
@@ -282,12 +303,47 @@ export default async function Page({
           </div>
         </TabsContent>
 
-        <TabsContent value="clientes">
-          <Card>
-            <CardHeader>
-              <CardTitle>Top clientes</CardTitle>
-              <CardDescription>Preferencias por cliente</CardDescription>
-            </CardHeader>
+        <TabsContent value="clientes" className="flex flex-col gap-4">
+          {data.topPuntos.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Top puntos de venta</CardTitle>
+                <CardDescription>Dataset 2024-2025 por punto</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Punto</TableHead>
+                      <TableHead className="text-right">Ventas</TableHead>
+                      <TableHead className="text-right">Compras</TableHead>
+                      <TableHead>Última compra</TableHead>
+                      <TableHead>Producto favorito</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.topPuntos.map((c) => (
+                      <TableRow key={c.codigo}>
+                        <TableCell className="font-medium">
+                          {c.codigo} · {c.nombre}
+                        </TableCell>
+                        <TableCell className="text-right">{fmtUSD(c.monto)}</TableCell>
+                        <TableCell className="text-right">{c.ventas}</TableCell>
+                        <TableCell>{c.ultimaCompra}</TableCell>
+                        <TableCell>{c.favorito}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          {data.topClientes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Top clientes</CardTitle>
+                <CardDescription>Preferencias por cliente</CardDescription>
+              </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
@@ -313,8 +369,11 @@ export default async function Page({
               </Table>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
       </Tabs>
+        </>
+      )}
     </div>
   );
 }

@@ -139,6 +139,9 @@ export function DashboardFilters() {
             <FilterSelect label="Zona" param="zona" options={opts.zonas} current={get("zona")} onChange={setParam} />
             <FilterSelect label="Canal venta" param="canalVenta" options={opts.canalesVenta} current={get("canalVenta")} onChange={setParam} />
             <FilterSelect label="Canal dist." param="canalDist" options={opts.canalesDist} current={get("canalDist")} onChange={setParam} />
+            {opts.puntos.length > 0 && (
+              <FilterSelect label="Punto" param="punto" options={opts.puntos} current={get("punto")} onChange={setParam} />
+            )}
           </>
         )}
       </div>

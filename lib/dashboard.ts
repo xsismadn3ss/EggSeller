@@ -9,6 +9,7 @@ export interface DashboardFilters {
   zona?: string;
   canalVenta?: string;
   canalDist?: string;
+  punto?: string;
 }
 
 export function parseFilters(
@@ -29,14 +30,17 @@ export function parseFilters(
     zona: s(sp.zona),
     canalVenta: s(sp.canalVenta),
     canalDist: s(sp.canalDist),
+    punto: s(sp.punto),
   };
 }
 
 const MATCH_BASE = `
-MATCH (cli:Cliente)-[:REALIZO]->(v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)-[:PERTENECE_A]->(cat:Categoria)
-MATCH (v)-[:POR_CANAL_DIST]->(cd:CanalDistribucion)
-MATCH (v)-[:POR_CANAL_VENTA]->(cv:CanalVenta)
-MATCH (cli)-[:UBICADO_EN]->(z:ZonaGeografica)`;
+MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)-[:PERTENECE_A]->(cat:Categoria)
+OPTIONAL MATCH (cli:Cliente)-[:REALIZO]->(v)
+OPTIONAL MATCH (pt:PuntoExpress)-[:REGISTRO]->(v)
+OPTIONAL MATCH (v)-[:POR_CANAL_DIST]->(cd)
+OPTIONAL MATCH (v)-[:POR_CANAL_VENTA]->(cv)
+OPTIONAL MATCH (cli)-[:UBICADO_EN]->(z)`;
 
 function buildWhere(f: DashboardFilters, desde = "desde", hasta = "hasta") {
   const conds = [`v.fecha >= date($${desde})`, `v.fecha <= date($${hasta})`];
@@ -48,6 +52,7 @@ function buildWhere(f: DashboardFilters, desde = "desde", hasta = "hasta") {
     ["z.nombre", f.zona],
     ["cv.nombre", f.canalVenta],
     ["cd.nombre", f.canalDist],
+    ["pt.codigo", f.punto],
   ];
   eq.forEach(([field, value], i) => {
     if (value) {
@@ -96,6 +101,15 @@ export interface TopCliente {
   favorito: string;
 }
 
+export interface TopPunto {
+  codigo: string;
+  nombre: string;
+  monto: number;
+  ventas: number;
+  ultimaCompra: string;
+  favorito: string;
+}
+
 export interface Tendencia {
   producto: string;
   kg: number;
@@ -113,6 +127,7 @@ export interface DashboardData {
   porCanal: Grupo[];
   porZona: Grupo[];
   topClientes: TopCliente[];
+  topPuntos: TopPunto[];
 }
 
 const num = (v: unknown): number =>
@@ -232,11 +247,11 @@ export async function getDashboardData(
     const prev = prevRange(f);
     const prevBuilt = buildWhere({ ...f, ...prev }, "pDesde", "pHasta");
 
-    const kpisQ = `${MATCH_BASE} ${where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT cli) AS clientes`;
+    const kpisQ = `${MATCH_BASE} ${where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`;
     // Secuencial: una sesión Neo4j no acepta queries concurrentes
     const cur = await session.run(kpisQ, params);
     const prv = await session.run(
-      `${MATCH_BASE} ${prevBuilt.where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT cli) AS clientes`,
+      `${MATCH_BASE} ${prevBuilt.where} RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes`,
       { ...params, ...prevBuilt.params },
     );
     const toKpis = (r: { get: (k: string) => unknown }): Kpis => {
@@ -277,7 +292,7 @@ export async function getDashboardData(
 
     const group = async (field: string): Promise<Grupo[]> => {
       const r = await session.run(
-        `${MATCH_BASE} ${where} WITH ${field} AS nombre, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN nombre, monto, kg, tickets ORDER BY monto DESC`,
+        `${MATCH_BASE} ${where} WITH ${field} AS nombre, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets WHERE nombre IS NOT NULL RETURN nombre, monto, kg, tickets ORDER BY monto DESC`,
         params,
       );
       return r.records.map((x) => ({
@@ -288,17 +303,36 @@ export async function getDashboardData(
       }));
     };
     const porCategoria = await group("cat.nombre");
-    const porCanal = await group("cv.nombre");
+    let porCanal = await group("cv.nombre");
+    if (porCanal.length === 0) {
+      // Dataset puntos: el canal vive en PuntoExpress, no en CanalVenta
+      porCanal = await group("pt.canal");
+    }
     const porZona = await group("z.nombre");
 
     const topCliR = await session.run(
-      `${MATCH_BASE} ${where} WITH cli, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u ORDER BY m DESC
+      `${MATCH_BASE} ${where} WITH cli, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE cli IS NOT NULL ORDER BY m DESC
        WITH cli, collect({nombre: p.nombre, m: m})[0] AS fav, sum(m) AS total, sum(n) AS ventas, max(u) AS ultima
        RETURN cli.nombre AS cliente, total, ventas, ultima, fav.nombre AS favorito ORDER BY total DESC LIMIT 10`,
       params,
     );
     const topClientes: TopCliente[] = topCliR.records.map((r) => ({
       cliente: String(r.get("cliente")),
+      monto: num(r.get("total")),
+      ventas: num(r.get("ventas")),
+      ultimaCompra: String(r.get("ultima")),
+      favorito: String(r.get("favorito")),
+    }));
+
+    const topPuntosR = await session.run(
+      `${MATCH_BASE} ${where} WITH pt, p, sum(v.monto) AS m, count(v) AS n, max(v.fecha) AS u WHERE pt IS NOT NULL ORDER BY m DESC
+       WITH pt, collect({nombre: p.nombre, m: m})[0] AS fav, sum(m) AS total, sum(n) AS ventas, max(u) AS ultima
+       RETURN pt.codigo AS codigo, pt.nombre AS nombre, total, ventas, ultima, fav.nombre AS favorito ORDER BY total DESC LIMIT 10`,
+      params,
+    );
+    const topPuntos: TopPunto[] = topPuntosR.records.map((r) => ({
+      codigo: String(r.get("codigo")),
+      nombre: String(r.get("nombre")),
       monto: num(r.get("total")),
       ventas: num(r.get("ventas")),
       ultimaCompra: String(r.get("ultima")),
@@ -323,7 +357,7 @@ export async function getDashboardData(
       };
     });
 
-    return { kpis, prev: prevKpis, serie, topProductos, tendencias, porCategoria, porCanal, porZona, topClientes };
+    return { kpis, prev: prevKpis, serie, topProductos, tendencias, porCategoria, porCanal, porZona, topClientes, topPuntos };
   } finally {
     await session.close();
   }
@@ -336,6 +370,7 @@ export interface FiltrosData {
   zonas: string[];
   canalesVenta: string[];
   canalesDist: string[];
+  puntos: string[];
   desde: string;
   hasta: string;
 }
@@ -356,11 +391,13 @@ export async function getFiltros(): Promise<FiltrosData> {
       "MATCH (z:ZonaGeografica) RETURN DISTINCT z.nombre AS n ORDER BY n",
       "MATCH (c:CanalVenta) RETURN DISTINCT c.nombre AS n ORDER BY n",
       "MATCH (c:CanalDistribucion) RETURN DISTINCT c.nombre AS n ORDER BY n",
+      "MATCH (pt:PuntoExpress) RETURN DISTINCT pt.codigo AS n ORDER BY n",
     ];
     // Secuencial: una sesión Neo4j no acepta queries concurrentes
     const lists: string[][] = [];
     for (const c of queries) lists.push(await q(c));
-    const [clientes, categorias, productos, zonas, canalesVenta, canalesDist] = lists as [
+    const [clientes, categorias, productos, zonas, canalesVenta, canalesDist, puntos] = lists as [
+      string[],
       string[],
       string[],
       string[],
@@ -378,6 +415,7 @@ export async function getFiltros(): Promise<FiltrosData> {
       zonas,
       canalesVenta,
       canalesDist,
+      puntos,
       desde: str(rango.records[0].get("d")),
       hasta: str(rango.records[0].get("h")),
     };
