@@ -154,13 +154,47 @@ export default async function Page({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {data.tendencias.filter(
-                (t) => t.tendenciaPct !== null && t.tendenciaPct < -10,
-              ).length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Sin caídas significativas en el periodo.
-                </p>
-              ) : (
+            <p className="text-sm text-muted-foreground">
+              Regla: pedido = MAX(0, demanda histórica + 20% seguridad −
+              stock). Sin stock registrado son candidatos a revisar, no pedidos
+              firmes.
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Producto</TableHead>
+                  <TableHead className="text-right">Demanda (kg)</TableHead>
+                  <TableHead className="text-right">Seguridad 20%</TableHead>
+                  <TableHead className="text-right">Stock</TableHead>
+                  <TableHead className="text-right">Pedido sugerido</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.topProductos.map((t) => {
+                  const seguridad = Math.round(t.kg * 0.2);
+                  return (
+                    <TableRow key={t.producto}>
+                      <TableCell className="font-medium">{t.producto}</TableCell>
+                      <TableCell className="text-right">{fmtInt(t.kg)}</TableCell>
+                      <TableCell className="text-right">{fmtInt(seguridad)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        s/d
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {fmtInt(t.kg + seguridad)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {data.tendencias.filter(
+              (t) => t.tendenciaPct !== null && t.tendenciaPct < -10,
+            ).length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Sin caídas significativas en el periodo.
+              </p>
+            ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>

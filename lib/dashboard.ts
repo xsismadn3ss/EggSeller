@@ -130,14 +130,21 @@ export function prevRange(f: DashboardFilters): { desde: string; hasta: string }
   return { desde: iso(desdePrev), hasta: iso(hastaPrev) };
 }
 
-export interface TrendProducto {
+export interface PedidoSugerido {
   producto: string;
-  kg: number;
-  monto: number;
-  tickets: number;
-  kgPrev: number;
-  tendenciaPct: number | null;
+  demandaHistoricaKg: number;
+  stockSeguridadKg: number;
+  stockDisponibleKg: number | null;
+  pedidoSugeridoKg: number;
+  nota: string;
 }
+
+// Regla de negocio (documento de requerimientos):
+// pedido = MAX(0, demanda estimada + stock de seguridad − stock disponible)
+// donde demanda estimada = kg históricos del periodo y stock de seguridad = 20%.
+// Stock disponible NO existe en el esquema actual → se reporta como null y el
+// pedido se calcula sin restarlo. Si se modifica la regla, documentarlo aquí.
+export const SEGURIDAD_PCT = 0.2;
 
 export interface ResumenCargamento {
   desde: string;
@@ -146,7 +153,8 @@ export interface ResumenCargamento {
   monto: number;
   kg: number;
   clientes: number;
-  productos: TrendProducto[];
+  productos: PedidoSugerido[];
+  regla: string;
 }
 
 /**
@@ -156,7 +164,6 @@ export interface ResumenCargamento {
 export async function getResumenCargamento(
   f: DashboardFilters,
 ): Promise<ResumenCargamento> {
-  const prev = prevRange(f);
   const session = getSession();
   try {
     const r = await session.run(
@@ -170,14 +177,10 @@ export async function getResumenCargamento(
     const r2 = await session.run(
       `MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)
        WHERE v.fecha >= date($desde) AND v.fecha <= date($hasta)
-       WITH p.nombre AS prod, sum(v.cantidad) AS kg, sum(v.monto) AS monto, count(*) AS t
-       OPTIONAL MATCH (v2:Venta)-[:INCLUYE_PRODUCTO]->(p2:Producto)
-       WHERE p2.nombre = prod AND v2.fecha >= date($pDesde) AND v2.fecha <= date($pHasta)
-       WITH prod, kg, monto, t, sum(v2.cantidad) AS kgPrev
-       RETURN prod, kg, monto, t, kgPrev,
-         CASE WHEN kgPrev > 0 THEN round((kg - kgPrev) * 100.0 / kgPrev) ELSE null END AS trend
+       WITH p.nombre AS prod, sum(v.cantidad) AS kg, count(*) AS t
+       RETURN prod, kg, t
        ORDER BY kg DESC`,
-      { desde: f.desde, hasta: f.hasta, pDesde: prev.desde, pHasta: prev.hasta },
+      { desde: f.desde, hasta: f.hasta },
     );
     return {
       desde: f.desde,
@@ -186,15 +189,19 @@ export async function getResumenCargamento(
       monto: Math.round(num(k.get("monto")) * 100) / 100,
       kg: num(k.get("kg")),
       clientes: num(k.get("clientes")),
-      productos: r2.records.map((x) => ({
-        producto: String(x.get("prod")),
-        kg: num(x.get("kg")),
-        monto: Math.round(num(x.get("monto")) * 100) / 100,
-        tickets: num(x.get("t")),
-        kgPrev: num(x.get("kgPrev")),
-        tendenciaPct:
-          x.get("trend") === null ? null : num(x.get("trend")),
-      })),
+      productos: r2.records.map((x) => {
+        const demanda = num(x.get("kg"));
+        const seguridad = Math.round(demanda * SEGURIDAD_PCT);
+        return {
+          producto: String(x.get("prod")),
+          demandaHistoricaKg: demanda,
+          stockSeguridadKg: seguridad,
+          stockDisponibleKg: null,
+          pedidoSugeridoKg: demanda + seguridad,
+          nota: "Sin stock disponible registrado; revisar inventario real antes de pedir",
+        };
+      }),
+      regla: `pedido = MAX(0, demanda histórica + ${SEGURIDAD_PCT * 100}% seguridad − stock). Stock no registrado → no se resta.`,
     };
   } finally {
     await session.close();

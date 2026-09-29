@@ -184,7 +184,7 @@ export function createMcpServer(): McpServer {
     "resumen_cargamento",
     {
       description:
-        "Todo lo necesario para sugerir un cargamento en UNA sola llamada: totales del periodo y por producto con kg, monto y tendencia % vs periodo anterior equivalente",
+        "Pedidos sugeridos por producto con la regla pedido = MAX(0, demanda histórica + 20% seguridad − stock). Stock no registrado → stockDisponibleKg null. Una sola llamada para el próximo cargamento",
       inputSchema: { desde: filtrosSchema.desde, hasta: filtrosSchema.hasta },
     },
     async (args) => {
