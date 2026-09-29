@@ -23,9 +23,8 @@ import {
 
 const PERIODOS = [
   { label: "Últimos 30 días", desde: "2025-12-02", hasta: "2025-12-31" },
+  { label: "Últimos 60 días", desde: "2025-11-02", hasta: "2025-12-31" },
   { label: "Últimos 90 días", desde: "2025-10-03", hasta: "2025-12-31" },
-  { label: "Q4 2025", desde: "2025-10-01", hasta: "2025-12-31" },
-  { label: "Q3 2025", desde: "2025-07-01", hasta: "2025-09-30" },
   { label: "Todo 2025", desde: "2025-01-01", hasta: "2025-12-31" },
 ];
 
