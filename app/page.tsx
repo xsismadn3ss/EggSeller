@@ -99,10 +99,95 @@ export default async function Page({
           <Card>
             <CardHeader>
               <CardTitle>Ventas por mes</CardTitle>
-              <CardDescription>Estacionalidad para planear cargamento</CardDescription>
+              <CardDescription>
+                Evolución mensual (datos 2025, único año registrado) y variación
+                vs mes anterior
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <SerieChart data={data.serie} />
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mes</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                    <TableHead className="text-right">Δ vs mes anterior</TableHead>
+                    <TableHead className="text-right">Tickets</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.serie.map((s, i) => {
+                    const prev = i > 0 ? data.serie[i - 1].monto : null;
+                    const pct =
+                      prev && prev > 0
+                        ? Math.round(((s.monto - prev) * 100) / prev)
+                        : null;
+                    return (
+                      <TableRow key={s.mes}>
+                        <TableCell className="font-medium">{s.mes}</TableCell>
+                        <TableCell className="text-right">{fmtUSD(s.monto)}</TableCell>
+                        <TableCell className="text-right">
+                          {pct === null ? (
+                            "—"
+                          ) : (
+                            <Badge variant={pct >= 0 ? "default" : "secondary"}>
+                              {pct >= 0 ? "+" : ""}
+                              {pct}%
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{s.tickets}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Señales de demanda</CardTitle>
+              <CardDescription>
+                Productos con caída vs periodo anterior equivalente. Sin datos
+                de inventario no se detecta quiebre de stock real: son
+                candidatos a revisar.
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <SerieChart data={data.serie} />
+              {data.tendencias.filter(
+                (t) => t.tendenciaPct !== null && t.tendenciaPct < -10,
+              ).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Sin caídas significativas en el periodo.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Producto</TableHead>
+                      <TableHead className="text-right">Kg periodo</TableHead>
+                      <TableHead className="text-right">Kg anterior</TableHead>
+                      <TableHead className="text-right">Tendencia</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.tendencias
+                      .filter(
+                        (t) => t.tendenciaPct !== null && t.tendenciaPct < -10,
+                      )
+                      .map((t) => (
+                        <TableRow key={t.producto}>
+                          <TableCell className="font-medium">{t.producto}</TableCell>
+                          <TableCell className="text-right">{fmtInt(t.kg)}</TableCell>
+                          <TableCell className="text-right">{fmtInt(t.kgPrev)}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant="secondary">{t.tendenciaPct}%</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -127,7 +212,21 @@ export default async function Page({
           </div>
         </TabsContent>
 
-        <TabsContent value="mercado" className="grid gap-4 lg:grid-cols-2">
+        <TabsContent value="mercado" className="flex flex-col gap-4">
+          {(() => {
+            const totKg = data.porCanal.reduce((a, g) => a + g.kg, 0);
+            const top = [...data.porCanal].sort((a, b) => b.kg - a.kg)[0];
+            const share =
+              top && totKg > 0 ? Math.round((top.kg * 100) / totKg) : 0;
+            return (
+              <p className="text-sm text-muted-foreground">
+                {top
+                  ? `Mayor volumen: ${top.nombre} con ${fmtInt(top.kg)} kg (${share}% del total).`
+                  : "Sin datos por canal."}
+              </p>
+            );
+          })()}
+          <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Por canal de venta</CardTitle>
@@ -146,6 +245,7 @@ export default async function Page({
               <GrupoBars data={data.porZona} color="var(--chart-4)" />
             </CardContent>
           </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="clientes">

@@ -84,6 +84,7 @@ export interface TopProducto {
 export interface Grupo {
   nombre: string;
   monto: number;
+  kg: number;
   tickets: number;
 }
 
@@ -95,11 +96,19 @@ export interface TopCliente {
   favorito: string;
 }
 
+export interface Tendencia {
+  producto: string;
+  kg: number;
+  kgPrev: number;
+  tendenciaPct: number | null;
+}
+
 export interface DashboardData {
   kpis: Kpis;
   prev: Kpis;
   serie: SeriePunto[];
   topProductos: TopProducto[];
+  tendencias: Tendencia[];
   porCategoria: Grupo[];
   porCanal: Grupo[];
   porZona: Grupo[];
@@ -261,12 +270,13 @@ export async function getDashboardData(
 
     const group = async (field: string): Promise<Grupo[]> => {
       const r = await session.run(
-        `${MATCH_BASE} ${where} WITH ${field} AS nombre, sum(v.monto) AS monto, count(*) AS tickets RETURN nombre, monto, tickets ORDER BY monto DESC`,
+        `${MATCH_BASE} ${where} WITH ${field} AS nombre, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(*) AS tickets RETURN nombre, monto, kg, tickets ORDER BY monto DESC`,
         params,
       );
       return r.records.map((x) => ({
         nombre: String(x.get("nombre")),
         monto: num(x.get("monto")),
+        kg: num(x.get("kg")),
         tickets: num(x.get("tickets")),
       }));
     };
@@ -288,7 +298,25 @@ export async function getDashboardData(
       favorito: String(r.get("favorito")),
     }));
 
-    return { kpis, prev: prevKpis, serie, topProductos, porCategoria, porCanal, porZona, topClientes };
+    // Tendencia por producto vs periodo anterior equivalente (mismos filtros)
+    const trendPrevR = await session.run(
+      `${MATCH_BASE} ${prevBuilt.where} WITH p.nombre AS prod, sum(v.cantidad) AS kgPrev RETURN prod, kgPrev`,
+      { ...params, ...prevBuilt.params },
+    );
+    const prevMap = new Map(
+      trendPrevR.records.map((r) => [String(r.get("prod")), num(r.get("kgPrev"))]),
+    );
+    const tendencias: Tendencia[] = topProductos.map((t) => {
+      const kgPrev = prevMap.get(t.producto) ?? 0;
+      return {
+        producto: t.producto,
+        kg: t.kg,
+        kgPrev,
+        tendenciaPct: kgPrev > 0 ? Math.round(((t.kg - kgPrev) * 100) / kgPrev) : null,
+      };
+    });
+
+    return { kpis, prev: prevKpis, serie, topProductos, tendencias, porCategoria, porCanal, porZona, topClientes };
   } finally {
     await session.close();
   }
