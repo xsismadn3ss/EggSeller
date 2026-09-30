@@ -1,7 +1,8 @@
 import { Geist, Geist_Mono, Raleway, Noto_Serif } from "next/font/google"
+import Script from "next/script"
 
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeProvider, themeInitScript } from "@/components/theme-provider"
 import { Navbar } from "@/components/navbar"
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,11 @@ export default function RootLayout({
       className={cn("antialiased", fontMono.variable, "font-sans", raleway.variable, notoSerifHeading.variable)}
     >
       <body>
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeInitScript }}
+        />
         <ThemeProvider>
           <Navbar />
           <div className="pt-14">{children}</div>
