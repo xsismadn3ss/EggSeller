@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -173,12 +173,14 @@ function CargaDirecta() {
 }
 
 function Wizard() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [mapeo, setMapeo] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   async function analizar() {
     if (!file) {
@@ -222,7 +224,15 @@ function Wizard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Error al subir");
-      setResult(data as UploadResult);
+      const uploadResult = data as UploadResult;
+      setResult(uploadResult);
+      setSuccess(
+        `Archivo ${file.name} cargado correctamente: ${uploadResult.insertadas} insertadas, ${uploadResult.errores.length} errores.`,
+      );
+      setFile(null);
+      setAnalisis(null);
+      setMapeo({});
+      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -244,17 +254,22 @@ function Wizard() {
           <div className="flex flex-col gap-2">
             <Label htmlFor="wfile">Archivo .csv / .xls / .xlsx (máx 5MB)</Label>
             <Input
+              ref={fileInputRef}
               id="wfile"
               type="file"
               accept=".csv,.xls,.xlsx"
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
                 setAnalisis(null);
+                setMapeo({});
                 setResult(null);
+                setError(null);
+                setSuccess(null);
               }}
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
+          {success && <p className="text-sm text-green-700">{success}</p>}
           <Button onClick={analizar} disabled={loading || !file}>
             {loading ? "Analizando…" : "Analizar columnas con IA"}
           </Button>
@@ -317,7 +332,7 @@ function Wizard() {
                 ))}
               </TableBody>
             </Table>
-            <Button onClick={cargar} disabled={loading}>
+            <Button onClick={cargar} disabled={loading || !file || !analisis}>
               {loading ? "Cargando…" : "Paso 3: cargar con este mapeo"}
             </Button>
           </CardContent>
