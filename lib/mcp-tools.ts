@@ -2,6 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getSession } from "./neo4j";
 import { getDashboardData, getResumenCargamento, parseFilters } from "./dashboard";
+import { getRiesgoQuiebre } from "./sugerencias/quiebre";
+import { getEstacionalidad } from "./sugerencias/estacional";
+import { getSustitutos } from "./sugerencias/sustitutos";
 
 const filtrosSchema = {
   desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha inicio YYYY-MM-DD"),
@@ -108,6 +111,22 @@ export function createMcpServer(): McpServer {
     },
   );
 
+
+  server.registerTool(
+    "riesgo_quiebre",
+    { description: "Riesgo de quiebre y pedido sugerido con stock, demanda30d y stock de seguridad registrados", inputSchema: { desde: filtrosSchema.desde, hasta: filtrosSchema.hasta } },
+    async (args) => text(await getRiesgoQuiebre(args.desde, args.hasta)),
+  );
+  server.registerTool(
+    "demanda_estacional",
+    { description: "Detecta productos con meses cuyo promedio histórico supera 1.3 veces su media mensual", inputSchema: {} },
+    async () => text(await getEstacionalidad()),
+  );
+  server.registerTool(
+    "sugerir_sustituto",
+    { description: "Sugiere productos de la misma categoría o con ventas históricas; requiere validación", inputSchema: { producto: z.string().optional().describe("Producto agotado, si se conoce") } },
+    async (args) => text(await getSustitutos(args.producto)),
+  );
 
   server.registerTool(
     "ventas_resumen",

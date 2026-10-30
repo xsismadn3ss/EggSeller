@@ -192,8 +192,7 @@ export interface PedidoSugerido {
 // Regla de negocio (documento de requerimientos):
 // pedido = MAX(0, demanda estimada + stock de seguridad − stock disponible)
 // donde demanda estimada = kg históricos del periodo y stock de seguridad = 20%.
-// Stock disponible NO existe en el esquema actual → se reporta como null y el
-// pedido se calcula sin restarlo. Si se modifica la regla, documentarlo aquí.
+// Si faltan datos del snapshot, el pedido se calcula como cota máxima.
 export const SEGURIDAD_PCT = 0.2;
 
 export interface ResumenCargamento {
@@ -217,18 +216,23 @@ export async function getResumenCargamento(
   const session = getSession();
   try {
     const r = await session.run(
-      `MATCH (cli:Cliente)-[:REALIZO]->(v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)
+      `${MATCH_CORE}
        WHERE v.fecha >= date($desde) AND v.fecha <= date($hasta)
-       WITH count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT cli) AS clientes
-       RETURN tickets, monto, kg, clientes`,
+       ${OPT}
+       WITH v, p, cat, cli, pt, cd, cv, z
+       RETURN count(v) AS tickets, sum(v.monto) AS monto, sum(v.cantidad) AS kg, count(DISTINCT coalesce(cli.nombre, pt.codigo)) AS clientes
+       `,
       { desde: f.desde, hasta: f.hasta },
     );
     const k = r.records[0];
     const r2 = await session.run(
       `MATCH (v:Venta)-[:INCLUYE_PRODUCTO]->(p:Producto)
        WHERE v.fecha >= date($desde) AND v.fecha <= date($hasta)
-       WITH p.nombre AS prod, sum(v.cantidad) AS kg, count(*) AS t
-       RETURN prod, kg, t
+       WITH p.nombre AS prod, sum(v.cantidad) AS kg, count(*) AS t,
+            max(v.fecha) AS fechaCorte,
+            collect({fecha: toString(v.fecha), stock: v.stockDisponible,
+                     demanda: v.demanda30d, seguridad: v.stockSeguridad}) AS snapshots
+       RETURN prod, kg, t, toString(fechaCorte) AS fechaCorte, snapshots
        ORDER BY kg DESC`,
       { desde: f.desde, hasta: f.hasta },
     );
@@ -240,15 +244,37 @@ export async function getResumenCargamento(
       kg: num(k.get("kg")),
       clientes: num(k.get("clientes")),
       productos: r2.records.map((x) => {
-        const demanda = num(x.get("kg"));
-        const seguridad = Math.round(demanda * SEGURIDAD_PCT);
+        const historico = num(x.get("kg"));
+        const fechaCorte = String(x.get("fechaCorte"));
+        const snapshots = x.get("snapshots") as {
+          fecha: string;
+          stock: unknown;
+          demanda: unknown;
+          seguridad: unknown;
+        }[];
+        const delCorte = snapshots.filter((snapshot) => snapshot.fecha === fechaCorte);
+        const maxRegistrado = (key: "stock" | "demanda" | "seguridad") => {
+          const valores = delCorte
+            .map((snapshot) => snapshot[key])
+            .filter((valor) => valor !== null && valor !== undefined)
+            .map(num);
+          return valores.length > 0 ? Math.max(...valores) : null;
+        };
+        const stock = maxRegistrado("stock");
+        const demandaRegistrada = maxRegistrado("demanda");
+        const seguridadRegistrada = maxRegistrado("seguridad");
+        const demanda = demandaRegistrada ?? historico;
+        const seguridad = seguridadRegistrada ?? Math.round(demanda * SEGURIDAD_PCT);
+        const fallback = stock === null || demandaRegistrada === null;
         return {
           producto: String(x.get("prod")),
           demandaHistoricaKg: demanda,
           stockSeguridadKg: seguridad,
-          stockDisponibleKg: null,
-          pedidoSugeridoKg: demanda + seguridad,
-          nota: "Sin stock disponible registrado; revisar inventario real antes de pedir",
+          stockDisponibleKg: stock,
+          pedidoSugeridoKg: Math.max(0, demanda + seguridad - (stock ?? 0)),
+          nota: fallback
+            ? "Sin stock registrado en el periodo; pedido es cota máxima, verificar inventario."
+            : `Calculado con stock registrado a ${fechaCorte}.`,
         };
       }),
       regla: `pedido = MAX(0, demanda histórica + ${SEGURIDAD_PCT * 100}% seguridad − stock). Stock no registrado → no se resta.`,
