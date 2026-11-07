@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -59,6 +59,7 @@ export default function SugerenciasPage() {
   const [explicacionesError, setExplicacionesError] = useState<Record<string, string>>({});
   const [detallesAbiertos, setDetallesAbiertos] = useState<Record<string, boolean>>({});
   const [explicacionesAbiertas, setExplicacionesAbiertas] = useState<Record<string, boolean>>({});
+  const [descargando, setDescargando] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let activo = true;
@@ -99,6 +100,42 @@ export default function SugerenciasPage() {
       setExplicacionesError((actual) => ({ ...actual, [tipo]: e instanceof Error ? e.message : String(e) }));
     } finally {
       setExplicacionesLoading((actual) => ({ ...actual, [tipo]: false }));
+    }
+  }
+
+  async function descargar(tipo: string, tipoLabel: string, rows: Sugerencia[]) {
+    if (rows.length === 0 || descargando[tipo]) return;
+    setDescargando((actual) => ({ ...actual, [tipo]: true }));
+    try {
+      const { descargarExcelSugerencias } = await import("@/lib/sugerencias/export");
+      await descargarExcelSugerencias(tipo, tipoLabel, rows, { periodo, punto }, explicaciones[tipo]);
+    } finally {
+      setDescargando((actual) => ({ ...actual, [tipo]: false }));
+    }
+  }
+
+  async function descargarTodo() {
+    const tablas = TIPOS_SUGERENCIA.filter(
+      ({ value }) => value !== "reporte" && tiposSeleccionados.includes(value) && (sugerencias[value] ?? []).length > 0,
+    ).map(({ value, label }) => ({ tipo: value, tipoLabel: label, rows: sugerencias[value] ?? [] }));
+    if (tablas.length === 0 || descargando.todas) return;
+    setDescargando((actual) => ({ ...actual, todas: true }));
+    try {
+      const { descargarTodoExcel } = await import("@/lib/sugerencias/export");
+      await descargarTodoExcel(tablas, { periodo, punto });
+    } finally {
+      setDescargando((actual) => ({ ...actual, todas: false }));
+    }
+  }
+
+  async function descargarReporte() {
+    if (!reporte || descargando.reporte) return;
+    setDescargando((actual) => ({ ...actual, reporte: true }));
+    try {
+      const { descargarTextoExcel } = await import("@/lib/sugerencias/export");
+      await descargarTextoExcel("Reporte de pedido sugerido", reporte, { periodo, punto });
+    } finally {
+      setDescargando((actual) => ({ ...actual, reporte: false }));
     }
   }
 
@@ -263,6 +300,13 @@ export default function SugerenciasPage() {
       {!loading && !reporte && Object.keys(sugerencias).length === 0 && !error && (
         <p className="text-sm text-muted-foreground">Elige un periodo y uno o más tipos: riesgo de quiebre detecta productos que podrían agotarse; demanda estacional muestra cambios por temporada; sustitutos propone alternativas; el reporte con IA recomienda el próximo pedido.</p>
       )}
+      {Object.keys(sugerencias).length > 1 && (
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={descargarTodo} disabled={descargando.todas}>
+            <Download className="size-4" /> {descargando.todas ? "Descargando…" : "Descargar todo (.xlsx)"}
+          </Button>
+        </div>
+      )}
       {Object.keys(sugerencias).length > 0 && TIPOS_SUGERENCIA.filter(({ value }) => value !== "reporte" && tiposSeleccionados.includes(value)).map(({ value: tipo }) => {
         const titulos: Record<string, string> = { quiebre: "Riesgo de quiebre", estacional: "Demanda estacional", sustitutos: "Sustitutos" };
         const rows = sugerencias[tipo] ?? [];
@@ -292,9 +336,14 @@ export default function SugerenciasPage() {
              </table> : <p className="text-sm text-muted-foreground">Sin sugerencias para los datos disponibles.</p>}
              </div>
             <div className="mt-4 flex flex-col gap-3">
-              <Button onClick={() => explicar(tipo, rows)} disabled={explicacionesLoading[tipo]}>
-                {explicacionesLoading[tipo] ? <><Spinner /> Consultando…</> : "Preguntar con IA"}
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button onClick={() => explicar(tipo, rows)} disabled={explicacionesLoading[tipo]}>
+                  {explicacionesLoading[tipo] ? <><Spinner /> Consultando…</> : "Preguntar con IA"}
+                </Button>
+                <Button variant="outline" onClick={() => descargar(tipo, titulos[tipo], rows)} disabled={rows.length === 0 || descargando[tipo]}>
+                  <Download className="size-4" /> {descargando[tipo] ? "Descargando…" : "Descargar Excel"}
+                </Button>
+              </div>
               {explicacionesError[tipo] && <p className="text-sm text-red-600">{explicacionesError[tipo]}</p>}
               {explicaciones[tipo] && (() => {
                 const analisisAbierto = explicacionesAbiertas[tipo] ?? explicaciones[tipo].length <= 1200;
@@ -356,9 +405,14 @@ export default function SugerenciasPage() {
               <div className="min-h-0 overflow-hidden"><ChatMarkdown text={reporte} /></div>
             </div>
             <div className="mt-4 flex flex-col gap-3">
-              <Button onClick={() => explicar("reporte", [], reporte)} disabled={explicacionesLoading.reporte}>
-                {explicacionesLoading.reporte ? <><Spinner /> Consultando…</> : "Preguntar con IA"}
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button onClick={() => explicar("reporte", [], reporte)} disabled={explicacionesLoading.reporte}>
+                  {explicacionesLoading.reporte ? <><Spinner /> Consultando…</> : "Preguntar con IA"}
+                </Button>
+                <Button variant="outline" onClick={descargarReporte} disabled={descargando.reporte}>
+                  <Download className="size-4" /> {descargando.reporte ? "Descargando…" : "Descargar Excel"}
+                </Button>
+              </div>
               {explicacionesError.reporte && <p className="text-sm text-red-600">{explicacionesError.reporte}</p>}
               {explicaciones.reporte && (() => {
                 const analisisAbierto = explicacionesAbiertas.reporte ?? explicaciones.reporte.length <= 1200;
