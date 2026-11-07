@@ -47,6 +47,61 @@ function encabezados(tipo: string, conPunto: boolean): string[] {
   return head;
 }
 
+/** Convierte Markdown a texto plano legible y corta líneas largas.
+ *  Los `\n` incrustados sí se muestran como saltos en Excel aunque la
+ *  celda no tenga "Ajustar texto" (estilo que `xlsx` no puede grabar). */
+function markdownACelda(md: string, ancho = 90): { texto: string; lineas: number } {
+  const normalizado = md.replace(/\r\n?/g, "\n");
+  const procesadas: string[] = [];
+  for (const cruda of normalizado.split("\n")) {
+    let line = cruda.trim();
+    // Separador de tabla GFM (| --- | --- |): no aporta nada en texto plano.
+    if (line.includes("---") && /^\|?[\s:|-]+\|?$/.test(line)) continue;
+    // Regla horizontal.
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) continue;
+    // Encabezados, citas, viñetas.
+    line = line.replace(/^#{1,6}\s*/, "");
+    line = line.replace(/^>\s?/, "");
+    if (/^\|.*\|$/.test(line)) {
+      line = line
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .join(" | ");
+    }
+    line = line.replace(/^(\d+[.)]|[-*+])\s+/, "• ");
+    // Formato en línea: **negrita**, *cursiva*, `código`.
+    line = line
+      .replace(/(\*\*|__)(.*?)\1/g, "$2")
+      .replace(/(^|\W)\*([^*\n]+)\*/g, "$1$2")
+      .replace(/(^|\W)_([^_\n]+)_/g, "$1$2")
+      .replace(/`([^`]*)`/g, "$1")
+      .trim();
+    procesadas.push(line);
+  }
+  const colapsado = procesadas.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Corte manual de líneas largas por palabras.
+  const cortadas: string[] = [];
+  for (const line of colapsado.split("\n")) {
+    if (line.length <= ancho || !line.includes(" ")) {
+      cortadas.push(line);
+      continue;
+    }
+    let actual = "";
+    for (const palabra of line.split(/\s+/)) {
+      const candidato = actual ? `${actual} ${palabra}` : palabra;
+      if (candidato.length > ancho && actual) {
+        cortadas.push(actual);
+        actual = palabra;
+      } else {
+        actual = candidato;
+      }
+    }
+    if (actual) cortadas.push(actual);
+  }
+  return { texto: cortadas.join("\n"), lineas: cortadas.length };
+}
+
 /** Ancho de columnas aproximado según el contenido. */
 function autoCols(aoa: (string | number)[][]): { wch: number }[] {
   const n = Math.max(...aoa.map((r) => r.length));
@@ -86,12 +141,10 @@ export async function descargarExcelSugerencias(
   XLSX.utils.book_append_sheet(wb, wsDatos, "Datos");
 
   if (analisisIA?.trim()) {
-    const texto = analisisIA.trim();
-    const lineas = texto.split("\n").length;
+    const { texto, lineas } = markdownACelda(analisisIA);
     const wsIA = XLSX.utils.aoa_to_sheet([["Análisis con IA"], [texto]]);
-    wsIA["!cols"] = [{ wch: 120 }];
-    // Las medidas de fila sí se escriben en el .xlsx: se dimensiona la
-    // celda al contenido para que el texto completo sea legible al abrir.
+    wsIA["!cols"] = [{ wch: 100 }];
+    // Altura según las líneas reales del texto convertido.
     wsIA["!rows"] = [{ hpt: 15 }, { hpt: Math.min(15 + lineas * 15, 409) }];
     XLSX.utils.book_append_sheet(wb, wsIA, "Análisis IA");
   }
@@ -156,11 +209,10 @@ export async function descargarTextoExcel(
   meta: Omit<ExportMeta, "tipoLabel">,
 ): Promise<void> {
   const XLSX = await xlsx();
-  const textoLimpio = texto.trim();
-  const lineas = textoLimpio.split("\n").length;
+  const { texto: textoLimpio, lineas } = markdownACelda(texto);
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([[titulo], [textoLimpio]]);
-  ws["!cols"] = [{ wch: 120 }];
+  ws["!cols"] = [{ wch: 100 }];
   ws["!rows"] = [{ hpt: 15 }, { hpt: Math.min(15 + lineas * 15, 409) }];
   XLSX.utils.book_append_sheet(wb, ws, "Reporte");
   const wsInfo = XLSX.utils.aoa_to_sheet([
