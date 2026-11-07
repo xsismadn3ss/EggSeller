@@ -86,15 +86,13 @@ export async function descargarExcelSugerencias(
   XLSX.utils.book_append_sheet(wb, wsDatos, "Datos");
 
   if (analisisIA?.trim()) {
-    const lineas = analisisIA
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    const wsIA = XLSX.utils.aoa_to_sheet([
-      ["Análisis con IA"],
-      ...lineas.map((l) => [l]),
-    ]);
-    wsIA["!cols"] = [{ wch: 100 }];
+    const texto = analisisIA.trim();
+    const lineas = texto.split("\n").length;
+    const wsIA = XLSX.utils.aoa_to_sheet([["Análisis con IA"], [texto]]);
+    wsIA["!cols"] = [{ wch: 120 }];
+    // Las medidas de fila sí se escriben en el .xlsx: se dimensiona la
+    // celda al contenido para que el texto completo sea legible al abrir.
+    wsIA["!rows"] = [{ hpt: 15 }, { hpt: Math.min(15 + lineas * 15, 409) }];
     XLSX.utils.book_append_sheet(wb, wsIA, "Análisis IA");
   }
 
@@ -151,20 +149,19 @@ export async function descargarTodoExcel(
   );
 }
 
-/** Exporta un texto Markdown (reporte IA) como hoja de líneas. */
+/** Exporta un texto Markdown (reporte IA) en una sola celda. */
 export async function descargarTextoExcel(
   titulo: string,
   texto: string,
   meta: Omit<ExportMeta, "tipoLabel">,
 ): Promise<void> {
   const XLSX = await xlsx();
-  const lineas = texto
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const textoLimpio = texto.trim();
+  const lineas = textoLimpio.split("\n").length;
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([[titulo], ...lineas.map((l) => [l])]);
-  ws["!cols"] = [{ wch: 100 }];
+  const ws = XLSX.utils.aoa_to_sheet([[titulo], [textoLimpio]]);
+  ws["!cols"] = [{ wch: 120 }];
+  ws["!rows"] = [{ hpt: 15 }, { hpt: Math.min(15 + lineas * 15, 409) }];
   XLSX.utils.book_append_sheet(wb, ws, "Reporte");
   const wsInfo = XLSX.utils.aoa_to_sheet([
     ["Periodo", meta.periodo],
