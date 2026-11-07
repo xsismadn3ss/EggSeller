@@ -69,20 +69,22 @@ export function Navbar() {
           EggSeller
         </Link>
         <div className="hidden items-center gap-1 md:flex">
-          <NavigationMenu>
-            <NavigationMenuList>
-              {LINKS.map((l) => (
-                <NavigationMenuItem key={l.href}>
-                  <NavigationMenuLink
-                    render={<Link href={l.href} />}
-                    className={navigationMenuTriggerStyle()}
-                  >
-                    {l.label}
-                  </NavigationMenuLink>
-                </NavigationMenuItem>
-              ))}
-            </NavigationMenuList>
-          </NavigationMenu>
+          {username ? (
+            <NavigationMenu>
+              <NavigationMenuList>
+                {LINKS.map((l) => (
+                  <NavigationMenuItem key={l.href}>
+                    <NavigationMenuLink
+                      render={<Link href={l.href} />}
+                      className={navigationMenuTriggerStyle()}
+                    >
+                      {l.label}
+                    </NavigationMenuLink>
+                  </NavigationMenuItem>
+                ))}
+              </NavigationMenuList>
+            </NavigationMenu>
+          ) : null}
           <ModeToggle />
           {username ? (
             <>
@@ -116,16 +118,18 @@ export function Navbar() {
                 <SheetTitle>EggSeller</SheetTitle>
               </SheetHeader>
               <nav className="flex flex-col gap-1 px-4">
-                {LINKS.map((l) => (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    onClick={() => setOpen(false)}
-                    className="rounded-md px-3 py-2 text-base font-medium hover:bg-muted"
-                  >
-                    {l.label}
-                  </Link>
-                ))}
+                {username
+                  ? LINKS.map((l) => (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        onClick={() => setOpen(false)}
+                        className="rounded-md px-3 py-2 text-base font-medium hover:bg-muted"
+                      >
+                        {l.label}
+                      </Link>
+                    ))
+                  : null}
                 {username ? (
                   <>
                     <span className="px-3 py-2 text-sm text-muted-foreground">
